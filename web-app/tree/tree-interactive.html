@@ -1,0 +1,473 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta http-equiv="Content-Type" content="text/html;charset=utf-8">
+    <title>Node-Link Tree</title>
+    <script type="text/javascript" src="d3.v2.js"></script>
+
+    <script src="jquery-1.8.3.js" type="text/javascript"></script>
+    <script src="jquery.json-2.4.js" type="text/javascript"></script>
+    <script src="jqContextMenu/jquery.ui.position.js" type="text/javascript"></script>
+    <script src="jqContextMenu/jquery.contextMenu.js" type="text/javascript"></script>
+    <link href="jqContextMenu/jquery.contextMenu.css" rel="stylesheet" type="text/css" />
+
+    <style type="text/css">
+
+        .node circle {
+            cursor: pointer;
+            fill: #fff;
+            stroke: steelblue;
+            stroke-width: 1.5px;
+        }
+
+        .node text {
+            font: 10px sans-serif;
+        }
+
+        path.link {
+            fill: none;
+            stroke: #2c2;
+            stroke-width: 1.5px;
+        }
+
+    </style>
+</head>
+<body>
+<div id="chart"></div>
+            <div id="contextMenu" style="display:none;"><p>This is old context menu div.</p></div>
+<div class="context-menu-one box menu-1">
+    <strong>right click me</strong>
+</div>
+
+<script type="text/javascript">
+    var margin = {top: 20, right: 120, bottom: 20, left: 120},
+            width = 1280 - margin.right - margin.left,
+            height = 800 - margin.top - margin.bottom,
+            i = 0,
+            duration = 500,
+            root;
+
+    var tree = d3.layout.tree()
+            .size([height, width]);
+
+    var diagonal = d3.svg.diagonal()
+            .projection(function (d) {
+                return [d.y, d.x];
+            });
+
+    var vis = d3.select("#chart").append("svg")
+            .attr("width", width + margin.right + margin.left)
+            .attr("height", height + margin.top + margin.bottom)
+            .append("g")
+            .attr("transform", "translate(" + margin.left + "," + margin.top + ")");
+
+    d3.json("data/flare.json", function (json) {
+        root = json;
+        root.x0 = height / 2;
+        root.y0 = 0;
+
+        function collapseLocal(d) {
+            if (d.children) {
+                d._children = d.children;
+                d._children.forEach(collapseLocal);
+                d.children = null;
+            }
+        }
+
+        root.children.forEach(collapse);
+        update(root);
+    });
+
+    var clipboard = {};
+    var undoBuffer = {};
+
+    function update(source) {
+        // Compute the new tree layout.
+        var nodes = tree.nodes(root).reverse();
+
+        // Normalize for fixed-depth.
+        nodes.forEach(function (d) {
+            d.y = d.depth * 180;
+        });
+
+        // Update the nodes…
+        var node = vis.selectAll("g.node")
+                .data(nodes, function (d) {
+                    return d.id || (d.id = ++i);
+                });
+
+        // Enter any new nodes at the parent's previous position.
+        var nodeEnter = node.enter().append("g")
+                .attr("class", "context-menu-one box menu-1 node")
+                .attr("transform", function (d) {
+                    return "translate(" + source.y0 + "," + source.x0 + ")";
+                })
+                .on("dblclick", click);
+
+        nodeEnter.append("circle")
+                .attr("r", 1e-6)
+                .style("fill", function (d) {
+                    return d._children ? "lightsteelblue" : "#fff";
+                })
+                .style("opacity", function (d) {
+                    return isAncestor(d, clipboard.cutNode) ? "0.3" : "1";
+                    // return source.displayMode == "CUT" && d.id == source.id ? "0.3" : "1";
+                })
+                .style("filter", function (d) {
+                    return isAncestor(d, clipboard.cutNode) ? "alpha(opacity=30)" : "alpha(opacity=100)";
+                    // return source.displayMode == "CUT" && d.id == source.id ? "alpha(opacity=30)" : "alpha(opacity=100)";
+                });
+
+        nodeEnter.append("text")
+                .attr("x", function (d) {
+                    return d.children || d._children ? -10 : 10;
+                })
+                .attr("dy", ".35em")
+                .attr("text-anchor", function (d) {
+                    return d.children || d._children ? "end" : "start";
+                })
+                .text(function (d) {
+                    return d.name;
+                })
+                .style("fill-opacity", 1e-6)
+                .style("opacity", function (d) {
+                    return isAncestor(d, clipboard.cutNode) ? "0.3" : "1";
+                    // return source.displayMode == "CUT" && d.id == source.id ? "0.3" : "1";
+                })
+                .style("filter", function (d) {
+                    return isAncestor(d, clipboard.cutNode) ? "alpha(opacity=30)" : "alpha(opacity=100)";
+                    // return source.displayMode == "CUT" && d.id == source.id ? "alpha(opacity=30)" : "alpha(opacity=100)";
+                });
+
+        // Transition nodes to their new position.
+        // @@@ create a function that searches the hierarchy of the "d" object through parent attribute to find the cut object id
+        // @@@ If the "d" object is in the hierarchy of the cut object on the clipboard, dim the object.
+        var nodeUpdate = node.transition()
+                .duration(duration)
+                .attr("transform", function (d) {
+                    return "translate(" + d.y + "," + d.x + ")";
+                });
+
+        nodeUpdate.select("circle")
+                .attr("r", 4.5)
+                .style("fill", function (d) {
+                    return d._children ? "lightsteelblue" : "#fff";
+                })
+                .style("opacity", function (d) {
+                    return isAncestor(d, clipboard.cutNode) ? "0.3" : "1";
+                    // return source.displayMode == "CUT" && d.id == source.id ? "0.4" : "1";
+                })
+                .style("filter", function (d) {
+                    return isAncestor(d, clipboard.cutNode) ? "alpha(opacity=30)" : "alpha(opacity=100)";
+                    // return source.displayMode == "CUT" && d.id == source.id ? "alpha(opacity=40)" : "alpha(opacity=100)";
+                });
+
+
+        nodeUpdate.select("text")
+                .style("fill-opacity", 1)
+                .style("opacity", function (d) {
+                    return isAncestor(d, clipboard.cutNode) ? "0.3" : "1";
+                    // return source.displayMode == "CUT" && d.id == source.id ? "0.4" : "1";
+               })
+               .style("filter", function (d) {
+                    return isAncestor(d, clipboard.cutNode) ? "alpha(opacity=30)" : "alpha(opacity=100)";
+                    // return source.displayMode == "CUT" && d.id == source.id ? "alpha(opacity=40)" : "alpha(opacity=100)";
+               });
+
+        // Transition exiting nodes to the parent's new position.
+        var nodeExit = node.exit().transition()
+                .duration(duration)
+                .attr("transform", function (d) {
+                    return "translate(" + source.y + "," + source.x + ")";
+                })
+                .remove();
+
+        nodeExit.select("circle")
+                .attr("r", 1e-6);
+
+        nodeExit.select("text")
+                .style("fill-opacity", 1e-6);
+
+        // Update the links…
+        var link = vis.selectAll("path.link")
+                .data(tree.links(nodes), function (d) {
+                    return d.target.id;
+                });
+
+        // Enter any new links at the parent's previous position.
+        link.enter().insert("path", "g")
+                .attr("class", "link")
+                .attr("d", function (d) {
+                    var o = {x: source.x0, y: source.y0};
+                    return diagonal({source: o, target: o});
+                })
+                .style("opacity", function (d) {
+                    return isAncestor(d.source, clipboard.cutNode) ? "0.3" : "1";
+                    // return source.displayMode == "CUT" && d.source.id == source.id ? "0.3" : "1";
+                })
+                .style("filter", function (d) {
+                    return isAncestor(d.source, clipboard.cutNode) ? "alpha(opacity=30)" : "alpha(opacity=100)";
+                    // return source.displayMode == "CUT" && d.source.id == source.id ? "alpha(opacity=30)" : "alpha(opacity=100)";
+                });
+
+        // Transition links to their new position.
+        link.transition()
+                .duration(duration)
+                .attr("d", diagonal)
+                .style("opacity", function (d) {
+                    return isAncestor(d.source, clipboard.cutNode) ? "0.3" : "1";
+                    // return source.displayMode == "CUT" && d.source.id == source.id ? "0.3" : "1";
+                })
+                .style("filter", function (d) {
+                    return isAncestor(d.source, clipboard.cutNode) ? "alpha(opacity=30)" : "alpha(opacity=100)";
+                    // return source.displayMode == "CUT" && d.source.id == source.id ? "alpha(opacity=30)" : "alpha(opacity=100)";
+                });
+
+        // Transition exiting nodes to the parent's new position.
+        link.exit().transition()
+                .duration(duration)
+                .attr("d", function (d) {
+                    var o = {x: source.x, y: source.y};
+                    return diagonal({source: o, target: o});
+                })
+                .remove();
+
+        // Stash the old positions for transition.
+        nodes.forEach(function (d) {
+            d.x0 = d.x;
+            d.y0 = d.y;
+        });
+    }
+
+    // @@@ left off here
+    function isAncestor(startNode, ancestor) {
+        if (!startNode || !ancestor) return false;
+        var node = startNode;
+        while (node) {
+            if (node.id == ancestor.id) {
+                return true;
+            }
+            node = node.parent;
+        }
+        return false;
+    }
+
+    // Toggle children on click.
+    function click(d) {
+        if (d.children) {
+            d._children = d.children;
+            d.children = null;
+        } else {
+            d.children = d._children;
+            d._children = null;
+        }
+        update(d);
+    }
+
+    function collapse(d) {
+        if (d.children) {
+            d._children = d.children;
+            d._children.forEach(collapse);
+            d.children = null;
+        }
+    }
+
+
+    // @@@ to hack
+    function copy(d) {
+        if (d.children) {
+            d._children = d.children;
+            d._children.forEach(collapse);
+            d.children = null;
+        }
+    }
+
+    function cut(cutNode, clipboard) {
+        var parent = cutNode.parent;
+        cutNode.displayMode =  "CUT";
+        clipboard.cutNode = cutNode;
+        update(cutNode);  // @@@ this is just to test the cut/paste experiment
+        return;
+
+        for (var i = 0; i < parent.children.length; i++) {
+            if (parent.children[i].id == cutNode.id) {
+                // var child = parent.children[i];
+                clipboard.cutParent = parent;
+                clipboard.cutNode = cutNode;
+
+                root.children.forEach(function (d) {
+                    if (d.id == 10) {
+                        this.clipboard.cutNode.parent = d;
+                        d.children[d.children.length] = cutNode;
+                        update(this.clipboard.cutNode.parent);
+                        // parent.children[i] = null;
+                        return;
+                    }
+                });
+
+                update(root);  // @@@ this is just to test the cut/paste experiment
+                return;
+            }
+        }
+    }
+
+    function paste(pasteNode, clipboard) {
+        if (!clipboard || !pasteNode) {
+            return;
+        }
+        var pasteNodeChildren;
+        if (pasteNode._children) {
+            pasteNodeChildren = pasteNode._children;
+        } else {
+            if (!pasteNode.children) {
+                        pasteNode.children = new Array();
+            }
+            pasteNodeChildren = pasteNode.children;
+        }
+        pasteNodeChildren[pasteNodeChildren.length] = clipboard.cutNode;
+        var cutNodeParent = clipboard.cutNode.parent;
+        for (var cutNodePos=0; cutNodePos < cutNodeParent.children.length; cutNodePos++) {
+            if (cutNodeParent.children[cutNodePos].id == clipboard.cutNode.id) break;
+        }
+        cutNodeParent.children.splice(cutNodePos,1);
+
+        clipboard.cutNode.parent = pasteNode;
+
+        update(cutNodeParent);
+        if (cutNodeParent.id != pasteNode.parent.id) {
+            update(pasteNode.parent);
+        }
+        clipboard.cutNode = null;
+    }
+
+    function edit(d) {
+
+    }
+
+    function deleteNode(nodeToDelete) {
+        if (!nodeToDelete) {
+            return;
+        }
+        var nodeToDeleteParent = nodeToDelete.parent;
+        for (var nodeToDeletePos=0; nodeToDeletePos < nodeToDeleteParent.children.length; nodeToDeletePos++) {
+            if (nodeToDeleteParent.children[nodeToDeletePos].id == nodeToDelete.id) break;
+        }
+        nodeToDeleteParent.children.splice(nodeToDeletePos,1);
+
+        update(nodeToDeleteParent);
+    }
+
+    function edit(d) {
+
+    }
+
+
+    function addChildren(parentNode, nodeData) {
+        if (!parentNode) {
+            return;
+        }
+        var parentNodeChildren, newNode;
+        if (parentNode._children) {
+            parentNodeChildren = parentNode._children;
+        } else {
+            if (!parentNode.children) {
+                parentNode.children = new Array();
+            }
+            parentNodeChildren = parentNode.children;
+        }
+        var newNodeList = nodeData.match(/[^\r\n]+/g);
+        newNodeList.forEach(function (d) {
+            newNode = new Object({"name": d, "size": 3416}); // @@@ what to use for size?
+            parentNodeChildren[parentNodeChildren.length] = newNode;
+        });
+        // parentNodeChildren[parentNodeChildren.length] = newNode;
+        update(parentNode);
+    }
+
+    $(function(){
+        $.contextMenu({
+            selector: 'g',
+            callback: function(key, options) {
+                var thisNode = this[0].__data__;
+                switch (key) {
+                    case "addchildren":
+                        addChildren(thisNode);
+                        alert("add children to this node.");
+                        break;
+                    case "edit":
+                        alert("edit node data.")
+                        break;
+                    case "cut":
+                        cut(thisNode, clipboard);
+                        // alert("cut branch at this node.")
+                        break;
+                    case "copy":
+                        alert("copy branch from this node.")
+                        break;
+                    case "paste":
+                        paste(thisNode, clipboard);
+                        // alert("paste branch on clipboard to this node.")
+                        break;
+                    case "delete":
+                        deleteNode(thisNode);
+                        alert("delete branch from this node.")
+                        break;
+                    case "collapse":
+                        // alert("collapse branch at this node.");
+                        // collapse(options.$trigger[0]);
+                        click(this[0].__data__);
+                        break;
+                    case "branchtogrid":
+                        alert("display branch from here down as a grid.")
+                        break;
+                }
+                var m = "You clicked: " + key;
+                // window.console && console.log(m) || alert(m);
+            },
+            items: {
+                "addsubmenu": {
+                    name: "Quick Add Child Nodes",
+                    icon: "edit",
+                    items: {
+                        "addchildren": {"name": "Add Nodes - one per line",
+                                        type: 'textarea',
+                                        value: "Hello World",
+                                        height: 100,
+                                        width: 400
+                        },
+                        sepsubmit: "---------",
+                        key: {
+                            name: "Create Nodes",
+                            callback: function(key, options) {
+                                var thisNode = this[0].__data__;
+                                var myData = $.contextMenu.getInputValues(options, this.data());
+                                var m = "edit was clicked" + myData.addchildren;
+                                addChildren(thisNode, myData.addchildren);
+                                window.console && console.log(m) || alert(myData.addchildren);
+                            }
+                        }
+                    }
+                },
+                "sep1": "---------",
+                "edit": {name: "Edit", icon: "edit"},
+                "cut": {name: "Cut", icon: "cut"},
+                "copy": {name: "Copy", icon: "copy"},
+                "paste": {name: "Paste", icon: "paste"},
+                "delete": {name: "Delete", icon: "delete"},
+                "collapse": {name: "Collapse", icon: "cut"},
+                "sep2": "---------",
+                "branchtogrid": {name: "Display Branch as Grid", icon: "edit"}
+            }
+        });
+
+        $('.context-menu-one').on('click', function(e){
+            console.log('clicked', this);
+        })
+    });
+
+
+
+
+</script>
+</body>
+</html>
