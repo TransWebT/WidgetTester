@@ -14,7 +14,7 @@ class Publisher {
 	static constraints = {
 		name(blank:false)
 		address1()
-		address2()
+		address2(nullable:true)
 		city()
 		state()
 		zip()
